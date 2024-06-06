@@ -84,6 +84,59 @@ func decompressSizeHint(src []byte) int {
 	return hint
 }
 
+// Type alias for the compression context returned by `CreateCCtx`.
+type CCtx = C.ZSTD_CCtx
+
+// Allocates a compression context that can be reused for multiple compression operations.
+func CreateCCtx() *CCtx {
+	return C.ZSTD_createCCtx()
+}
+
+// Same as `Compress``, but takes pre-allocated context that can be created with `CreateCCtx`.
+func CompressCCtx(cctx *CCtx, dst, src []byte) ([]byte, error) {
+	return CompressLevelCCtx(cctx, dst, src, DefaultCompression)
+}
+
+// Same as `CompressLevel`, but takes a pre-allocated context that can be created with `CreateCCtx`.
+func CompressLevelCCtx(cctx *CCtx, dst, src []byte, level int) ([]byte, error) {
+	bound := CompressBound(len(src))
+	if cap(dst) >= bound {
+		dst = dst[0:bound] // Reuse dst buffer
+	} else {
+		dst = make([]byte, bound)
+	}
+
+	// We need unsafe.Pointer(&src[0]) in the Cgo call to avoid "Go pointer to Go pointer" panics.
+	// This means we need to special case empty input. See:
+	// https://github.com/golang/go/issues/14210#issuecomment-346402945
+	var cWritten C.size_t
+	if len(src) == 0 {
+		cWritten = C.ZSTD_compressCCtx(
+			cctx,
+			unsafe.Pointer(&dst[0]),
+			C.size_t(len(dst)),
+			unsafe.Pointer(nil),
+			C.size_t(0),
+			C.int(level))
+	} else {
+		cWritten = C.ZSTD_compressCCtx(
+			cctx,
+			unsafe.Pointer(&dst[0]),
+			C.size_t(len(dst)),
+			unsafe.Pointer(&src[0]),
+			C.size_t(len(src)),
+			C.int(level))
+	}
+
+	written := int(cWritten)
+	// Check if the return is an Error code
+	if err := getError(written); err != nil {
+		return nil, err
+	}
+	return dst[:written], nil
+}
+
+
 // Compress src into dst.  If you have a buffer to use, you can pass it to
 // prevent allocation.  If it is too small, or if nil is passed, a new buffer
 // will be allocated and returned.
