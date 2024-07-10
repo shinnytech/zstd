@@ -325,6 +325,19 @@ func (w *Writer) SetNbWorkers(n int) error {
 	return nil
 }
 
+// SetEnableCheckSum enables or disables the checksum using ZSTD_c_checksumFlag.
+// Checksum is disabled by default.
+func (w *Writer) SetEnableCheckSum(enable bool) error {
+	if w.firstError != nil {
+		return w.firstError
+	}
+	var value C.int
+	if enable {
+		value = 1
+	}
+	return getError(int(C.ZSTD_CCtx_setParameter(w.ctx, C.ZSTD_c_checksumFlag, value)))
+}
+
 // cSize is the recommended size of reader.compressionBuffer. This func and
 // invocation allow for a one-time check for validity.
 var cSize = func() int {
